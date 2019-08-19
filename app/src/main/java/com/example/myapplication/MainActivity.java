@@ -1,13 +1,17 @@
 package com.example.myapplication;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
+import android.content.pm.PackageManager;
 import android.net.http.SslError;
 import android.os.Build;
 import android.os.Bundle;
 import android.support.annotation.RequiresApi;
+import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.view.KeyEvent;
+import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.JsResult;
@@ -18,9 +22,17 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import java.util.ArrayList;
+
 public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
+
+    private static final String[] permissions = {
+            Manifest.permission.WRITE_EXTERNAL_STORAGE,
+            Manifest.permission.CAMERA,
+            Manifest.permission.RECORD_AUDIO,
+    };
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -53,6 +65,11 @@ public class MainActivity extends AppCompatActivity {
                 return true;
             }
 
+            @Override//视频播放
+            public void onShowCustomView(View view, CustomViewCallback callback) {
+                super.onShowCustomView(view, callback);
+            }
+
             @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
             @Override
             public void onPermissionRequest(PermissionRequest request) {
@@ -68,7 +85,8 @@ public class MainActivity extends AppCompatActivity {
         webView.getSettings().setAppCachePath(appCachePath);
         webView.getSettings().setAllowFileAccess(true);
         webView.getSettings().setAppCacheEnabled(true);
-
+        webView.getSettings().setUseWideViewPort(true);
+        webView.getSettings().setPluginState(WebSettings.PluginState.ON);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             webView.getSettings().setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         }
@@ -87,4 +105,21 @@ public class MainActivity extends AppCompatActivity {
         }
         return super.onKeyDown(keyCode, event);
     }
+//
+//    private boolean checkPermissions() {
+//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+//            ArrayList<String> needPermissions = new ArrayList<>();
+//            for (String permission : permissions) {
+//                if (ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_DENIED) {
+//                    needPermissions.add(permission);
+//                }
+//            }
+//            int size = needPermissions.size();
+//            if (size > 0) {
+//                requestPermissions(needPermissions.toArray(new String[size]), PERMISSION_CAMERA);
+//                return false;
+//            }
+//        }
+//        return true;
+//    }
 }
