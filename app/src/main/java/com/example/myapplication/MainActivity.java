@@ -7,13 +7,16 @@ import android.content.pm.PackageManager;
 import android.net.http.SslError;
 import android.os.Build;
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.support.annotation.RequiresApi;
 import android.support.v4.content.ContextCompat;
 import android.support.v7.app.AppCompatActivity;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.webkit.CookieManager;
 import android.webkit.JsResult;
 import android.webkit.PermissionRequest;
 import android.webkit.SslErrorHandler;
@@ -23,16 +26,11 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
 import java.util.ArrayList;
+import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
-
-    private static final String[] permissions = {
-            Manifest.permission.WRITE_EXTERNAL_STORAGE,
-            Manifest.permission.CAMERA,
-            Manifest.permission.RECORD_AUDIO,
-    };
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -44,19 +42,9 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         webView = findViewById(R.id.webView);
 
-        webView.setWebViewClient(new WebViewClient() {
-            @Override
-                public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-                    handler.proceed();
-                }
+        setUpWebViewDefaults(webView);
 
-                @Override
-                    public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                        view.loadUrl(url);
-                        return true;
-                }
-            }
-        );
+
 
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -72,8 +60,23 @@ public class MainActivity extends AppCompatActivity {
 
             @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
             @Override
-            public void onPermissionRequest(PermissionRequest request) {
-                request.grant(request.getResources());
+            public void onPermissionRequest(final PermissionRequest request) {
+                Log.d("P", "Request permissions: ");
+                for (String res : request.getResources()) {
+                    Log.d("P", res);
+                }
+                MainActivity.this.runOnUiThread(new Runnable() {
+                    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+                    @Override
+                    public void run() {
+                        request.grant(request.getResources());
+                    }
+                });
+            }
+
+            @Override
+            public void onPermissionRequestCanceled(PermissionRequest request) {
+                Log.d("P", "onPermissionRequestCanceled");
             }
         });
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
@@ -98,6 +101,70 @@ public class MainActivity extends AppCompatActivity {
 //        webView.loadUrl("https://app.skylkj.com");
     }
 
+    @RequiresApi(api = Build.VERSION_CODES.KITKAT)
+    @Override
+    public void onStop() {
+        super.onStop();
+        webView.evaluateJavascript("if(window.localStream){window.localStream.stop();}", null);
+    }
+
+
+    /**
+     * Convenience method to set some generic defaults for a
+     * given WebView
+     *
+     * @param webView
+     */
+    @SuppressLint("SetJavaScriptEnabled")
+    private void setUpWebViewDefaults(WebView webView) {
+        WebSettings settings = webView.getSettings();
+
+        // Enable Javascript
+        settings.setJavaScriptEnabled(true);
+
+        // Use WideViewport and Zoom out if there is no viewport defined
+        settings.setUseWideViewPort(true);
+        settings.setLoadWithOverviewMode(true);
+
+        // Enable pinch to zoom without the zoom buttons
+        settings.setBuiltInZoomControls(true);
+
+        // Allow use of Local Storage
+        settings.setDomStorageEnabled(true);
+
+        // Hide the zoom controls for HONEYCOMB+
+        settings.setDisplayZoomControls(false);
+        settings.setJavaScriptCanOpenWindowsAutomatically(true);
+
+        settings.setPluginState(WebSettings.PluginState.ON);
+
+        // Enable remote debugging via chrome://inspect
+        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+            WebView.setWebContentsDebuggingEnabled(true);
+        }
+
+        settings.setRenderPriority(WebSettings.RenderPriority.HIGH);
+
+        webView.setWebViewClient(new WebViewClient() {
+                                     @Override
+                                     public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                                         handler.proceed();
+                                     }
+
+                                     @Override
+                                     public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                                         view.loadUrl(url);
+                                         return true;
+                                     }
+                                 }
+        );
+        // AppRTC requires third party cookies to work
+        CookieManager cookieManager = CookieManager.getInstance();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            cookieManager.setAcceptThirdPartyCookies(webView, true);
+        }
+    }
+
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK && webView.canGoBack()) {
             webView.goBack();
@@ -105,21 +172,27 @@ public class MainActivity extends AppCompatActivity {
         }
         return super.onKeyDown(keyCode, event);
     }
-//
-//    private boolean checkPermissions() {
-//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-//            ArrayList<String> needPermissions = new ArrayList<>();
-//            for (String permission : permissions) {
-//                if (ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_DENIED) {
-//                    needPermissions.add(permission);
-//                }
-//            }
-//            int size = needPermissions.size();
-//            if (size > 0) {
-//                requestPermissions(needPermissions.toArray(new String[size]), PERMISSION_CAMERA);
-//                return false;
-//            }
-//        }
-//        return true;
-//    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            int hasCameraPermission = checkSelfPermission(Manifest.permission.CAMERA);
+            int hasRecordPermission = checkSelfPermission(Manifest.permission.RECORD_AUDIO);
+            List<String> permissions = new ArrayList<>();
+            if (hasCameraPermission != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(Manifest.permission.CAMERA);
+            }
+            if (hasRecordPermission != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(Manifest.permission.RECORD_AUDIO);
+            }
+            if (!permissions.isEmpty()) {
+                requestPermissions(permissions.toArray(new String[permissions.size()]), 111);
+            }
+        }
+    }
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+    }
 }
