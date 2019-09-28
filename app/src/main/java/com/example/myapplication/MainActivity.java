@@ -3,10 +3,17 @@ package com.example.myapplication;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
+import android.app.Activity;
+import android.content.ContentResolver;
+import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
+import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.support.annotation.NonNull;
 import android.support.annotation.RequiresApi;
 import android.support.v4.content.ContextCompat;
@@ -20,17 +27,26 @@ import android.webkit.CookieManager;
 import android.webkit.JsResult;
 import android.webkit.PermissionRequest;
 import android.webkit.SslErrorHandler;
+import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends Activity {
 
     private WebView webView;
+
+    private ValueCallback<Uri> mUploadMessage;
+    private ValueCallback<Uri[]> mUploadCallbackAboveL;
+    private final int RESULT_CODE_PICK_FROM_ALBUM_BELLOW_LOLLILOP = 1;
+    private final int RESULT_CODE_PICK_FROM_ALBUM_ABOVE_LOLLILOP = 2;
+    String compressPath = "";
+
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -43,7 +59,6 @@ public class MainActivity extends AppCompatActivity {
         webView = findViewById(R.id.webView);
 
         setUpWebViewDefaults(webView);
-
 
 
         webView.setWebChromeClient(new WebChromeClient() {
@@ -78,6 +93,42 @@ public class MainActivity extends AppCompatActivity {
             public void onPermissionRequestCanceled(PermissionRequest request) {
                 Log.d("P", "onPermissionRequestCanceled");
             }
+
+
+            public void openFileChooser(ValueCallback<Uri> uploadMsg,
+                                        String acceptType) {
+                if (mUploadMessage != null)
+                    return;
+                mUploadMessage = uploadMsg;
+                selectImage(RESULT_CODE_PICK_FROM_ALBUM_BELLOW_LOLLILOP);
+            }
+
+            // For Android < 3.0
+            public void openFileChooser(ValueCallback<Uri> uploadMsg) {
+                openFileChooser(uploadMsg, "");
+            }
+
+            // For Android > 4.1.1
+            public void openFileChooser(ValueCallback<Uri> uploadMsg,
+                                        String acceptType, String capture) {
+                openFileChooser(uploadMsg, acceptType);
+            }
+
+            // For Android 5.0+
+            public boolean onShowFileChooser(WebView webView,
+                                             ValueCallback<Uri[]> filePathCallback,
+                                             FileChooserParams fileChooserParams) {
+                mUploadCallbackAboveL = filePathCallback;
+                selectImage(RESULT_CODE_PICK_FROM_ALBUM_ABOVE_LOLLILOP);
+                return true;
+            }
+
+            @Override
+            public void onProgressChanged(WebView view, int newProgress) {
+                super.onProgressChanged(view, newProgress);
+            }
+
+
         });
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
             webView.getSettings().setAllowUniversalAccessFromFileURLs(true);
@@ -195,4 +246,124 @@ public class MainActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
     }
+
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (mUploadMessage == null && mUploadCallbackAboveL == null) {
+            return;
+        }
+        Uri uri = null;
+        switch (requestCode) {
+            case RESULT_CODE_PICK_FROM_ALBUM_BELLOW_LOLLILOP:
+                uri = afterChosePic(data);
+                if (mUploadMessage != null) {
+                    mUploadMessage.onReceiveValue(uri);
+                    mUploadMessage = null;
+                }
+                break;
+            case RESULT_CODE_PICK_FROM_ALBUM_ABOVE_LOLLILOP:
+                try {
+                    uri = afterChosePic(data);
+                    if (uri == null) {
+                        mUploadCallbackAboveL.onReceiveValue(new Uri[] { });
+                        mUploadCallbackAboveL = null;
+                        break;
+                    }
+                    if (mUploadCallbackAboveL != null && uri != null) {
+                        mUploadCallbackAboveL.onReceiveValue(new Uri[] { uri });
+                        mUploadCallbackAboveL = null;
+                    }
+                } catch (Exception e) {
+                    mUploadCallbackAboveL = null;
+                    e.printStackTrace();
+                }
+                break;
+        }
+    }
+
+    /**
+     * 选择照片后结束
+     * @param data
+     */
+    private Uri afterChosePic(Intent data) {
+        if (data == null) {
+            return null;
+        }
+        String path = getRealFilePath(data.getData());
+        String[] names = path.split("\\.");
+        String endName = null;
+        if (names != null) {
+            endName = names[names.length - 1];
+        }
+        if (endName != null) {
+            compressPath = compressPath.split("\\.")[0] + "." + endName;
+        }
+        File newFile;
+        try {
+            newFile = FileUtils.compressFile(path, compressPath);
+        } catch (Exception e) {
+            newFile = null;
+        }
+        return Uri.fromFile(newFile);
+    }
+
+    /**
+     * 根据Uri获取图片文件的绝对路径
+     */
+    public String getRealFilePath(final Uri uri) {
+        if (null == uri) {
+            return null;
+        }
+        final String scheme = uri.getScheme();
+        String data = null;
+        if (scheme == null) {
+            data = uri.getPath();
+        } else if (ContentResolver.SCHEME_FILE.equals(scheme)) {
+            data = uri.getPath();
+        } else if (ContentResolver.SCHEME_CONTENT.equals(scheme)) {
+            Cursor cursor = getContentResolver().query(uri,
+                    new String[] { MediaStore.Images.ImageColumns.DATA }, null, null, null);
+            if (null != cursor) {
+                if (cursor.moveToFirst()) {
+                    int index = cursor.getColumnIndexOrThrow(MediaStore.Images.ImageColumns.DATA);
+                    if (index > -1) {
+                        data = cursor.getString(index);
+                    }
+                }
+                cursor.close();
+            }
+        }
+        return data;
+    }
+    @Override
+    public void onBackPressed() {
+        super.onBackPressed();
+        if(webView.canGoBack()){
+            webView.goBack();
+        }else{
+            finish();
+        }
+    }
+
+    /**打开图库,同时处理图片（项目业务需要统一命名）*/
+    private void selectImage(int resultCode) {
+        compressPath = Environment.getExternalStorageDirectory().getPath() + "/QWB/temp";
+        File file = new File(compressPath);
+        if (!file.exists()) {
+            file.mkdirs();
+        }
+        compressPath = compressPath + File.separator + "compress.png";
+        File image = new File(compressPath);
+        if (image.exists()) {
+            image.delete();
+        }
+        Intent intent = new Intent(
+                Intent.ACTION_PICK, android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+        startActivityForResult(intent, resultCode);
+
+    }
+
+
 }
